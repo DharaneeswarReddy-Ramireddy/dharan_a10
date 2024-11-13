@@ -1,57 +1,100 @@
 pipeline {
-    agent any
+    agent { label 'node_slave' }
+
+    environment {
+        ECR_REPO = '866934333672.dkr.ecr.us-west-2.amazonaws.com/dharan/python-app'          // Replace with your actual ECR URL
+        IMAGE_NAME = 'flask-app'
+        TAG = "${env.BRANCH_NAME}-${env.BUILD_ID}"
+        PORT = "${env.BRANCH_NAME == 'dev' ? '5001' : env.BRANCH_NAME == 'staging' ? '5002' : '5003'}"
+        CONTAINER_NAME = "${IMAGE_NAME}-${env.BRANCH_NAME}"
+    }
 
     stages {
         stage('Checkout') {
             steps {
-                // Checkout the code from GitHub test 1
-                checkout scm
+                git branch: "${env.BRANCH_NAME}", url: 'https://github.com/DharaneeswarReddy-Ramireddy/dharan_a10.git' // Replace with your GitHub repository URL
             }
         }
 
-        stage('Build') {
+        stage('Build Docker Image') {
             steps {
-                // Build the Docker image
-                sh 'docker build -t flask-app .'
+                script {
+                    // Build an image tagged with the branch name and build ID
+                    docker.build("${env.ECR_REPO}:${env.TAG}")
+                }
+            }
+        }
+
+        stage('Push to ECR') {
+            steps {
+                // Log in to ECR using the instance profile attached to the EC2 instance
+                sh "aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin ${env.ECR_REPO}"
+                
+                // Push the Docker image to ECR with the branch-specific tag
+                sh "docker push ${env.ECR_REPO}:${env.TAG}"
+            }
+            post {
+                success {
+                    // Send email notification after successful image push to ECR
+                    emailext(
+                        subject: "Jenkins Job - Docker Image Pushed to ECR Successfully",
+                        body: "Hello,\n\nThe Docker image '${env.IMAGE_NAME}:${env.TAG}' has been successfully pushed to ECR.\n\nBest regards,\nJenkins",
+                        recipientProviders: [[$class: 'DevelopersRecipientProvider']],
+                        to: "Dharaneeswar.ramireddy@gmail.com"  // Replace with the recipient's email
+                    )
+                }
             }
         }
 
         stage('Cleanup Previous Containers') {
             steps {
-                // Stop and remove any existing container named flask-test
-                sh 'docker stop flask-test || true'
-                sh 'docker rm flask-test || true'
-
-                // Stop any existing container named flask-app from previous deployments
-                sh 'docker stop flask-app || true'
-                sh 'docker rm flask-app || true'
-
-                // Free up port 5000 if needed
-                sh "fuser -k 5000/tcp || true"
+                script {
+                    // Stop and remove any container with the same name for the current branch
+                    sh "docker stop ${CONTAINER_NAME} || true"
+                    sh "docker rm ${CONTAINER_NAME} || true"
+                    sh "fuser -k ${PORT}/tcp || true" // Free up the designated port
+                }
             }
         }
 
         stage('Test') {
             steps {
-                // Run the Docker container for testing
-                sh 'docker run -d --name flask-test -p 5000:5000 flask-app'
-                sh 'sleep 5' // Wait for the container to start
+                script {
+                    // Run the Docker container for testing with the branch-specific port
+                    sh "docker run -d --name ${CONTAINER_NAME} -p ${PORT}:5000 ${ECR_REPO}:${TAG}"
+                    sh 'sleep 5' // Wait for the container to start
 
-                // Test if the Flask app is responding
-                sh 'curl -f http://localhost:5000 || exit 1'
+                    // Test if the Flask app is responding on the designated port
+                    sh "curl -f http://localhost:${PORT} || exit 1"
 
-                // Stop and remove the test container after testing
-                sh 'docker stop flask-test'
-                sh 'docker rm flask-test'
+                    // Stop and remove the test container after testing
+                    sh "docker stop ${CONTAINER_NAME}"
+                    sh "docker rm ${CONTAINER_NAME}"
+                }
             }
         }
 
         stage('Deploy') {
-            steps {
-                // Deploy the container for the actual running service
-                // Ensure any old flask-app container is already removed
-                sh 'docker run -d --name flask-app -p 5000:5000 flask-app'
+            when {
+                branch 'main'  // Only deploy if we're on the main branch
             }
+            steps {
+                script {
+                    // Deploy the main branch container to production on port 80
+                    sh """
+                    docker pull ${ECR_REPO}:${TAG}
+                    docker stop ${IMAGE_NAME} || true
+                    docker rm ${IMAGE_NAME} || true
+                    docker run -d --name ${IMAGE_NAME} -p 80:5000 ${ECR_REPO}:${TAG}
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            cleanWs()  // Clean up workspace after the build
         }
     }
 }
