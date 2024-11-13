@@ -20,7 +20,7 @@ pipeline {
             steps {
                 script {
                     // Build an image tagged with the branch name and build ID
-                    docker.build("${env.ECR_REPO}:${env.TAG}")
+                    sh "docker build -t ${env.ECR_REPO}:${env.TAG} ."
                 }
             }
         }
