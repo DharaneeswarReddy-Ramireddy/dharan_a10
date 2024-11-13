@@ -35,12 +35,11 @@ pipeline {
             }
             post {
                 success {
-                    // Send email notification after successful image push to ECR
-                    emailext(
+                // Send a basic email notification after successful image push to ECR
+                    mail(
+                        to: 'Dharaneeswar.ramireddy@gmail.com', // Replace with the recipient's email
                         subject: "Jenkins Job - Docker Image Pushed to ECR Successfully",
-                        body: "Hello,\n\nThe Docker image '${env.IMAGE_NAME}:${env.TAG}' has been successfully pushed to ECR.\n\nBest regards,\nJenkins",
-                        recipientProviders: [[$class: 'DevelopersRecipientProvider']],
-                        to: "Dharaneeswar.ramireddy@gmail.com"  // Replace with the recipient's email
+                        body: "Hello,\n\nThe Docker image '${env.IMAGE_NAME}:${env.TAG}' has been successfully pushed to ECR.\n\nBest regards,\nJenkins"
                     )
                 }
             }
