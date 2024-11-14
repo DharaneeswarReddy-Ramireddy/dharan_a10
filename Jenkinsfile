@@ -7,6 +7,7 @@ pipeline {
         TAG = "${env.BRANCH_NAME}-${env.BUILD_ID}"
         PORT = "${env.BRANCH_NAME == 'dev' ? '5001' : env.BRANCH_NAME == 'staging' ? '5002' : '5003'}"
         CONTAINER_NAME = "${IMAGE_NAME}-${env.BRANCH_NAME}"
+        
     }
 
     stages {
